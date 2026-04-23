@@ -33,6 +33,307 @@ async function dbSave(data) {
 const STATUSES = ["pendiente","en curso","completado","urgente"];
 const SL = { pendiente:"Pendiente","en curso":"En curso",completado:"Completado",urgente:"Urgente" };
 const SC = {
+  pendiente:  { bg:"#1A2F10", border:"#8DC63F", text:"#B5E36A", dot:"#8DC63F" },
+  "en curso": { bg:"#082030", border:"#00B4D8", text:"#5DCFEA", dot:"#00B4D8" },
+  completado: { bg:"#082028", border:"#0077B6", text:"#4AABDC", dot:"#0077B6" },
+  urgente:    { bg:"#2A0A0A", border:"#E24B4A", text:"#F09595", dot:"#E24B4A" },
+};
+const DEF_AREAS    = ["Administración","Contabilidad","Calidad","Sistemas"];
+const DEF_PROJECTS = ["Sin proyecto"];
+const DEF_PEOPLE   = ["María García","Juan Pérez","Laura Rodríguez"];
+const DEF_MEET_CATS= ["Administración","Calidad","Logística","Diego"];
+const PIE_C = ["#00B4D8","#8DC63F","#0077B6","#E24B4A","#FACC15","#06B6D4","#EC4899","#84CC16"];
+const MONTHS_S = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const WDAYS   = ["Do","Lu","Ma","Mi","Ju","Vi","Sá"];
+const PLAN_MONTHS = ["Abr 2026","May 2026","Jun 2026","Jul 2026","Ago 2026","Sep 2026","Oct 2026","Nov 2026","Dic 2026","Ene 2027","Feb 2027","Mar 2027"];
+
+const th = {
+  bg:"#0D1B2E",
+  surface:"#132338",
+  s2:"#1B2F4A",
+  border:"#1E3A5F",
+  borderHi:"#2A5080",
+  text:"#E8F4FC",
+  muted:"#6B9AB8",
+  accent:"#00B4D8",
+  accentBg:"#082030",
+};
+
+const SEC = {
+  dashboard:     { color:"#00B4D8", bg:"#082030", border:"#00B4D844" },
+  tareas:        { color:"#8DC63F", bg:"#0F1E08", border:"#8DC63F44" },
+  historial:     { color:"#00B4D8", bg:"#082030", border:"#00B4D844" },
+  objetivos:     { color:"#8DC63F", bg:"#0F1E08", border:"#8DC63F44" },
+  reuniones:     { color:"#0077B6", bg:"#081828", border:"#0077B644" },
+  indicadores:   { color:"#00B4D8", bg:"#082030", border:"#00B4D844" },
+  notas:         { color:"#8DC63F", bg:"#0F1E08", border:"#8DC63F44" },
+  configuración: { color:"#6B9AB8", bg:"#132338", border:"#6B9AB844" },
+};
+
+const I = {
+  width:"100%", boxSizing:"border-box", padding:"8px 11px",
+  borderRadius:8, border:`1.5px solid ${th.borderHi}`,
+  fontSize:13, background:th.s2, color:th.text, outline:"none",
+};
+const FI = {
+  width:"100%", boxSizing:"border-box", padding:"9px 12px",
+  fontSize:14, background:"transparent", color:th.text, border:"none", outline:"none",
+};
+const EMPTY_FORM = {
+  title:"", desc:"", status:"pendiente", area:"", project:"",
+  due:"", responsibles:[], freeResp:"", url:"",
+};
+
+function btn(v, extra) {
+  var base = {
+    padding:"7px 15px", borderRadius:8, fontSize:13, fontWeight:500, cursor:"pointer",
+    border: v==="p" ? `1.5px solid ${th.accent}` : v==="r" ? "1.5px solid #E24B4A" : `1.5px solid ${th.borderHi}`,
+    background: v==="p" ? th.accent : v==="r" ? "#2A0A0A" : th.s2,
+    color: v==="p" ? "#0D1B2E" : v==="r" ? "#F09595" : th.text,
+  };
+  return Object.assign({}, base, extra || {});
+}
+
+function fmtD(str) {
+  if (!str) return "";
+  var parts = str.split("-");
+  return parts[2] + "/" + parts[1] + "/" + parts[0];
+}
+function fmtDT(iso) {
+  var d = new Date(iso);
+  return d.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"numeric"})
+    + " " + d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+}
+
+function Chip({ label, color, bg }) {
+  return (
+    <span style={{ background:bg, color:color, fontSize:10, fontWeight:500, padding:"2px 8px", borderRadius:99, border:`1px solid ${color}44`, whiteSpace:"nowrap" }}>
+      {label}
+    </span>
+  );
+}
+
+function FieldBox({ label, hint, children }) {
+  return (
+    <div style={{ marginBottom:13 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+        <label style={{ fontSize:11, color:th.muted, fontWeight:600, letterSpacing:"0.05em" }}>{label}</label>
+        {hint && <span style={{ fontSize:10, color:th.muted }}>{hint}</span>}
+      </div>
+      <div style={{ borderRadius:8, border:`1.5px solid ${th.borderHi}`, overflow:"hidden", background:th.s2 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SCard({ children, style }) {
+  return (
+    <div style={Object.assign({ background:th.surface, border:`1px solid ${th.border}`, borderRadius:12, padding:"14px 16px" }, style || {})}>
+      {children}
+    </div>
+  );
+}
+
+function SecTitle({ children }) {
+  return (
+    <div style={{ fontSize:11, fontWeight:600, color:th.muted, marginBottom:10, letterSpacing:"0.06em" }}>
+      {children}
+    </div>
+  );
+}
+
+function TabBtn({ label, active, onClick, count, secKey }) {
+  var sec = SEC[secKey] || SEC.dashboard;
+  return (
+    <button onClick={onClick} style={{
+      padding:"6px 14px", borderRadius:8, fontSize:12, fontWeight:500,
+      cursor:"pointer", whiteSpace:"nowrap",
+      border: active ? `1.5px solid ${sec.color}` : `1.5px solid ${th.border}`,
+      background: active ? sec.bg : "transparent",
+      color: active ? sec.color : th.muted,
+      boxShadow: active ? `0 0 12px ${sec.color}33` : "none",
+    }}>
+      {label}
+      {count > 0 && (
+        <span style={{ marginLeft:4, fontSize:10, background:th.s2, border:`1px solid ${th.border}`, borderRadius:99, padding:"1px 5px", color:th.muted }}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function ProgressBar({ pct, color, h }) {
+  return (
+    <div style={{ height:h||4, background:th.border, borderRadius:99 }}>
+      <div style={{ height:h||4, borderRadius:99, background:color||th.accent, width: Math.min(100, pct) + "%", transition:"width 0.4s" }} />
+    </div>
+  );
+}
+
+function Pomodoro() {
+  var WORK = 45*60, REST = 15*60;
+  var [mode,setMode] = useState("work");
+  var [secs,setSecs] = useState(WORK);
+  var [on,setOn]     = useState(false);
+  var ref  = useRef(null);
+  var mRef = useRef("work");
+  mRef.current = mode;
+  var tick = useCallback(function() {
+    setSecs(function(s) {
+      if (s<=1) { clearInterval(ref.current); setOn(false); var nx=mRef.current==="work"?"rest":"work"; setMode(nx); setSecs(nx==="work"?WORK:REST); return 0; }
+      return s-1;
+    });
+  },[]);
+  useEffect(function() { if(on){ref.current=setInterval(tick,1000);}else clearInterval(ref.current); return function(){clearInterval(ref.current);}; },[on,tick]);
+  function reset() { clearInterval(ref.current); setOn(false); setSecs(mode==="work"?WORK:REST); }
+  function sw(m) { clearInterval(ref.current); setOn(false); setMode(m); setSecs(m==="work"?WORK:REST); }
+  var total=mode==="work"?WORK:REST, pct=(secs/total)*100, r=30, circ=2*Math.PI*r;
+  var mm=String(Math.floor(secs/60)).padStart(2,"0"), ss=String(secs%60).padStart(2,"0");
+  var mc=mode==="work"?th.accent:"#8DC63F";
+  return (
+    <div style={{ background:th.surface, border:`1px solid ${th.border}`, borderRadius:12, padding:"12px" }}>
+      <SecTitle>POMODORO</SecTitle>
+      <div style={{ display:"flex", gap:4, marginBottom:10 }}>
+        {[["work","Trabajo"],["rest","Descanso"]].map(function(pair) {
+          return <button key={pair[0]} onClick={function(){sw(pair[0]);}} style={{ flex:1, padding:"3px", borderRadius:6, fontSize:10, fontWeight:600, cursor:"pointer", border:`1px solid ${mode===pair[0]?mc:th.border}`, background:mode===pair[0]?(pair[0]==="work"?th.accentBg:"#0F1E08"):"transparent", color:mode===pair[0]?mc:th.muted }}>{pair[1]}</button>;
+        })}
+      </div>
+      <div style={{ display:"flex", justifyContent:"center", marginBottom:8 }}>
+        <svg width="76" height="76" viewBox="0 0 76 76">
+          <circle cx="38" cy="38" r={r} fill="none" stroke={th.s2} strokeWidth="5"/>
+          <circle cx="38" cy="38" r={r} fill="none" stroke={mc} strokeWidth="5" strokeDasharray={circ} strokeDashoffset={circ*(1-pct/100)} strokeLinecap="round" transform="rotate(-90 38 38)" style={{ transition:"stroke-dashoffset 1s linear" }}/>
+          <text x="38" y="35" textAnchor="middle" fontSize="12" fontWeight="700" fill={th.text}>{mm}:{ss}</text>
+          <text x="38" y="49" textAnchor="middle" fontSize="8" fill={th.muted}>{mode==="work"?"trabajo":"descanso"}</text>
+        </svg>
+      </div>
+      <div style={{ display:"flex", gap:6, justifyContent:"center" }}>
+        <button onClick={function(){setOn(function(o){return !o;});}} style={btn("p",{padding:"5px 12px",fontSize:12})}>{on?"Pausar":"Iniciar"}</button>
+        <button onClick={reset} style={btn("d",{padding:"5px 9px",fontSize:12})}>↺</button>
+      </div>
+    </div>
+  );
+}
+
+function Cal({ tasks, sel, onSel }) {
+  var td=new Date(); var [c,setC]=useState({y:td.getFullYear(),m:td.getMonth()});
+  var first=new Date(c.y,c.m,1).getDay(), dim=new Date(c.y,c.m+1,0).getDate(), todayS=td.toISOString().split("T")[0];
+  var tmap={}; tasks.filter(function(t){return t.due;}).forEach(function(t){tmap[t.due]=(tmap[t.due]||0)+1;});
+  var cells=[]; for(var i=0;i<first;i++)cells.push(null); for(var d=1;d<=dim;d++)cells.push(d);
+  function ds(d){return c.y+"-"+String(c.m+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");}
+  return (
+    <div style={{ background:th.surface, border:`1px solid ${th.border}`, borderRadius:12, padding:"12px" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+        <button onClick={function(){setC(function(p){var m=p.m===0?11:p.m-1;return{y:m===11?p.y-1:p.y,m:m};});}} style={{ background:"none",border:"none",cursor:"pointer",color:th.muted,fontSize:15 }}>‹</button>
+        <span style={{ fontSize:11, fontWeight:600, color:th.text }}>{MONTHS_S[c.m]} {c.y}</span>
+        <button onClick={function(){setC(function(p){var m=p.m===11?0:p.m+1;return{y:m===0?p.y+1:p.y,m:m};});}} style={{ background:"none",border:"none",cursor:"pointer",color:th.muted,fontSize:15 }}>›</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:1, marginBottom:2 }}>
+        {WDAYS.map(function(d){return <div key={d} style={{ textAlign:"center",fontSize:9,color:th.muted,fontWeight:600 }}>{d}</div>;})}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:1 }}>
+        {cells.map(function(d,i){
+          if(!d)return <div key={i}/>;
+          var s=ds(d),isT=s===todayS,isS=s===sel;
+          return <div key={i} onClick={function(){onSel(s===sel?null:s);}} style={{ textAlign:"center",fontSize:10,padding:"3px 1px",borderRadius:4,cursor:"pointer",background:isS?th.accent:isT?th.accentBg:"transparent",color:isS?"#0D1B2E":isT?th.accent:th.text,fontWeight:isT||isS?700:400 }}>
+            {d}{tmap[s]>0&&<div style={{ width:3,height:3,borderRadius:"50%",background:isS?"#0D1B2E":th.accent,margin:"1px auto 0" }}/>}
+          </div>;
+        })}
+      </div>
+      {sel&&<div style={{ marginTop:7,borderTop:`1px solid ${th.border}`,paddingTop:5,fontSize:10,color:th.muted,textAlign:"center" }}>
+        {(tmap[sel]||0)} tarea{tmap[sel]!==1?"s":""} — {fmtD(sel)}<br/>
+        <button onClick={function(){onSel(null);}} style={{ background:"none",border:"none",cursor:"pointer",color:th.accent,fontSize:10 }}>Limpiar</button>
+      </div>}
+    </div>
+  );
+}
+
+function PieChart({ data }) {
+  var sz=130,cx=65,cy=65,r=50,h=24,total=data.reduce(function(s,d){return s+d.n;},0)||1,angle=-Math.PI/2;
+  var slices=data.map(function(d,i){
+    var sw=(d.n/total)*2*Math.PI,x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle); angle+=sw;
+    var x2=cx+r*Math.cos(angle),y2=cy+r*Math.sin(angle),xi1=cx+h*Math.cos(angle-sw),yi1=cy+h*Math.sin(angle-sw),xi2=cx+h*Math.cos(angle),yi2=cy+h*Math.sin(angle),lg=sw>Math.PI?1:0;
+    return{p:"M"+x1+","+y1+" A"+r+","+r+" 0 "+lg+",1 "+x2+","+y2+" L"+xi2+","+yi2+" A"+h+","+h+" 0 "+lg+",0 "+xi1+","+yi1+" Z",c:PIE_C[i%PIE_C.length]};
+  });
+  return <svg width={sz} height={sz} viewBox={"0 0 "+sz+" "+sz}>
+    {slices.map(function(s,i){return <path key={i} d={s.p} fill={s.c} stroke={th.bg} strokeWidth="1.5"/>;})}
+    <circle cx={cx} cy={cy} r={h-1} fill={th.surface}/>
+    <text x={cx} y={cy+4} textAnchor="middle" fontSize="11" fontWeight="700" fill={th.text}>{total}</text>
+  </svg>;
+}
+
+function ICard({ title, data }) {
+  return <SCard><SecTitle>{title.toUpperCase()}</SecTitle>
+    {data.length===0?<div style={{ fontSize:12,color:th.muted }}>Sin datos</div>:
+    <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+      <PieChart data={data}/>
+      <div style={{ flex:1,minWidth:0 }}><div style={{ display:"grid",gridTemplateColumns:"10px 1fr auto auto",gap:"4px 7px",alignItems:"center" }}>
+        {data.map(function(d,i){return[
+          <div key={"c"+i} style={{ width:9,height:9,borderRadius:2,background:PIE_C[i%PIE_C.length] }}/>,
+          <div key={"l"+i} style={{ fontSize:11,color:th.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{d.label}</div>,
+          <div key={"n"+i} style={{ fontSize:11,color:th.muted,textAlign:"right" }}>{d.n}</div>,
+          <div key={"p"+i} style={{ fontSize:11,color:th.accent,textAlign:"right",fontWeight:700 }}>{d.pct}%</div>,
+        ];})}
+      </div></div>
+    </div>}
+  </SCard>;
+}
+
+function KCard({ t, onOpen, onCycle, onDel, isOD }) {
+  var sc=SC[t.status]||SC.pendiente,subT=(t.subtasks||[]).length,subD=(t.subtasks||[]).filter(function(s){return s.status==="completado";}).length;
+  return <div onClick={function(){onOpen(t);}} onMouseEnter={function(e){e.currentTarget.style.borderColor=sc.border;}} onMouseLeave={function(e){e.currentTarget.style.borderColor=th.border;}}
+    style={{ background:th.s2,border:`1px solid ${th.border}`,borderRadius:8,padding:"9px 11px",cursor:"pointer",marginBottom:5 }}>
+    <div style={{ display:"flex",justifyContent:"space-between",gap:6,marginBottom:5 }}>
+      <span style={{ fontSize:12,fontWeight:500,color:th.text,lineHeight:1.4 }}>{t.title}</span>
+      <button onClick={function(e){e.stopPropagation();onDel(t.id);}} style={{ background:"none",border:"none",cursor:"pointer",color:th.muted,fontSize:12,padding:0,flexShrink:0 }}>✕</button>
+    </div>
+    <div style={{ display:"flex",flexWrap:"wrap",gap:4,marginBottom:4 }}>
+      {t.area&&<Chip label={t.area} color="#00B4D8" bg="#082030"/>}
+      {t.project&&t.project!=="Sin proyecto"&&<Chip label={t.project} color="#8DC63F" bg="#0F1E08"/>}
+      {t.due&&<span style={{ fontSize:10,color:isOD(t)?"#F09595":th.muted }}>{isOD(t)?"⚠ ":""}{fmtD(t.due)}</span>}
+    </div>
+    {subT>0&&<div style={{ marginTop:4 }}>
+      <div style={{ display:"flex",justifyContent:"space-between",marginBottom:2 }}><span style={{ fontSize:9,color:th.muted }}>Subtareas</span><span style={{ fontSize:9,color:subD===subT?"#8DC63F":th.muted }}>{subD}/{subT}</span></div>
+      <ProgressBar pct={subT?Math.round(subD/subT*100):0} color={subD===subT?"#8DC63F":th.accent} h={2}/>
+    </div>}
+    <div style={{ display:"flex",gap:6,marginTop:5,alignItems:"center" }}>
+      {(t.responsibles||[]).length>0&&<span style={{ fontSize:10,color:"#8DC63F",flex:1 }}>👤 {t.responsibles[0]}{t.responsibles.length>1?" +"+(t.responsibles.length-1):""}</span>}
+      <button onClick={fimport React, { useState, useEffect, useRef, useCallback } from 'react';
+
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
+const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_KEY;
+const DB_ID = "gestor_principal";
+
+async function dbLoad() {
+  try {
+    var res = await fetch(SUPABASE_URL + "/rest/v1/gestor_datos?id=eq." + DB_ID + "&select=data", {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    var rows = await res.json();
+    if (rows && rows.length > 0) return rows[0].data;
+    return null;
+  } catch(e) { console.error("dbLoad error", e); return null; }
+}
+
+async function dbSave(data) {
+  try {
+    await fetch(SUPABASE_URL + "/rest/v1/gestor_datos", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+      },
+      body: JSON.stringify({ id: DB_ID, data: data, updated_at: new Date().toISOString() }),
+    });
+  } catch(e) { console.error("dbSave error", e); }
+}
+
+const STATUSES = ["pendiente","en curso","completado","urgente"];
+const SL = { pendiente:"Pendiente","en curso":"En curso",completado:"Completado",urgente:"Urgente" };
+const SC = {
   pendiente:  { bg:"#3D2800", border:"#EF9F27", text:"#FAC775", dot:"#EF9F27" },
   "en curso": { bg:"#0C2F52", border:"#378ADD", text:"#85B7EB", dot:"#378ADD" },
   completado: { bg:"#0A2E1E", border:"#1D9E75", text:"#5DCAA5", dot:"#1D9E75" },
@@ -924,22 +1225,37 @@ export default function App() {
                 </a>
               </div>
             </SCard>
-            {shortcuts.length>0 && (
-              <SCard style={{ padding:"12px 14px" }}>
-                <SecTitle>ACCESOS DIRECTOS</SecTitle>
-                <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
-                  {shortcuts.map(function(s){
-                    return (
-                      <a key={s.id} href={s.url} target="_blank" rel="noreferrer"
+            <SCard style={{ padding:"12px 14px" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                <SecTitle style={{ margin:0 }}>ACCESOS DIRECTOS</SecTitle>
+                <button onClick={function(){setShowScF(function(s){return !s;});setScForm({emoji:"🔗",name:"",url:""}); }} style={btn("p",{fontSize:11,padding:"3px 10px"})}>+ Agregar</button>
+              </div>
+              {showScF && (
+                <div style={{ display:"grid",gridTemplateColumns:"50px 1fr 1fr auto",gap:7,marginBottom:10 }}>
+                  <input style={I} value={scForm.emoji} onChange={function(e){setScForm(function(f){return Object.assign({},f,{emoji:e.target.value});});}} placeholder="🔗"/>
+                  <input style={I} value={scForm.name}  onChange={function(e){setScForm(function(f){return Object.assign({},f,{name:e.target.value});});}}  placeholder="Nombre"/>
+                  <input style={I} value={scForm.url}   onChange={function(e){setScForm(function(f){return Object.assign({},f,{url:e.target.value});});}}   placeholder="URL"/>
+                  <button style={btn("p",{padding:"6px 10px"})} onClick={addShortcut}>+</button>
+                </div>
+              )}
+              {shortcuts.length===0 && !showScF && (
+                <div style={{ fontSize:12,color:th.muted }}>No hay accesos directos. Agregá el primero.</div>
+              )}
+              <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+                {shortcuts.map(function(s){
+                  return (
+                    <div key={s.id} style={{ position:"relative" }}>
+                      <a href={s.url} target="_blank" rel="noreferrer"
                         style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4,textDecoration:"none",padding:"9px 12px",background:th.s2,borderRadius:10,border:`1px solid ${th.border}`,minWidth:60 }}>
                         <span style={{ fontSize:20 }}>{s.emoji}</span>
                         <span style={{ fontSize:10,color:th.text,fontWeight:500,textAlign:"center",maxWidth:70,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{s.name}</span>
                       </a>
-                    );
-                  })}
-                </div>
-              </SCard>
-            )}
+                      <button onClick={function(){delShortcut(s.id);}} style={{ position:"absolute",top:-5,right:-5,width:16,height:16,borderRadius:"50%",background:"#E24B4A",border:"none",cursor:"pointer",color:"#fff",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1 }}>✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </SCard>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
               <SCard style={{ padding:"12px 14px" }}>
                 <SecTitle>REQUIEREN ATENCIÓN</SecTitle>
